@@ -39,7 +39,9 @@ def get_calendar_service(token: str | None = None):
 
     shortcut: token comes from the request or env, never from disk.
     """
-    return build("calendar", "v3", credentials=Credentials(token=token or require_token()))
+    return build(
+        "calendar", "v3", credentials=Credentials(token=token or require_token()), cache_discovery=False
+    )
 
 
 def build_rrule(
@@ -156,6 +158,127 @@ def _create_event(
         return f"Failed to create event: {type(e).__name__}: {e}"
 
 
+def _list_events(service: Any, days: int = 7, max_results: int = 10) -> str:
+    """Upcoming events in the next N days. Never raises."""
+    try:
+        now = datetime.now(tz=ZoneInfo(DEFAULT_TZ)).replace(microsecond=0)
+        end = now + timedelta(days=int(days))
+        resp = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=now.isoformat(),
+                timeMax=end.isoformat(),
+                maxResults=int(max_results),
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        items = resp.get("items", [])
+        if not items:
+            return f"No events in the next {days} days"
+        lines = []
+        for e in items:
+            start = (e.get("start") or {}).get("dateTime") or (e.get("start") or {}).get("date", "")
+            guests = [a.get("email", "") for a in e.get("attendees", []) if not a.get("self")]
+            meet = e.get("hangoutLink") or ""
+            extra = []
+            if guests:
+                extra.append(f"guests={','.join(guests)}")
+            if meet:
+                extra.append("has_meet")
+            suffix = f" | {' | '.join(extra)}" if extra else " | no_guests | no_meet"
+            lines.append(f"{start} | {e.get('summary', '(untitled)')} | id={e.get('id')}{suffix}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to list events: {type(e).__name__}: {e}"
+
+
+def _delete_event(service: Any, event_id: str) -> str:
+    """Delete by id. Never raises; a missing id is reported, not hidden."""
+    try:
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        return f"Deleted event id={event_id}"
+    except Exception as e:
+        return f"Failed to delete event: {type(e).__name__}: {e}"
+
+
+def _update_event(
+    service: Any,
+    event_id: str,
+    add_attendees: str = "",
+    title: str = "",
+    date: str = "",
+    hour: int = -1,
+    minute: int = -1,
+    duration_minutes: int = -1,
+    description: str = "",
+    tz: ZoneInfo = None,
+) -> str:
+    """Patch an existing event. Only the fields given are changed. Never raises."""
+    tz = tz or ZoneInfo(DEFAULT_TZ)
+    try:
+        current = service.events().get(calendarId="primary", eventId=event_id).execute()
+        patch: dict[str, Any] = {}
+
+        if (title or "").strip():
+            patch["summary"] = title.strip()
+        if (description or "").strip():
+            patch["description"] = description
+
+        if (add_attendees or "").strip():
+            existing = [a.get("email", "").lower() for a in current.get("attendees", [])]
+            emails = list(existing)
+            for e in add_attendees.split(","):
+                e = e.strip().lower()
+                if e and e not in emails:
+                    emails.append(e)
+            patch["attendees"] = [{"email": e} for e in emails if e]
+
+        if date.strip() or int(hour) >= 0 or int(minute) >= 0:
+            start = current.get("start") or {}
+            raw = date.strip() if date.strip() else (start.get("dateTime") or "")
+            if not raw:
+                return "Failed to update event: event has no start time to keep"
+            base = datetime.fromisoformat(raw)
+            new_hour = int(hour) if int(hour) >= 0 else base.hour
+            new_minute = int(minute) if int(minute) >= 0 else base.minute
+            delta = int(duration_minutes) if int(duration_minutes) >= 0 else int(
+                (
+                    datetime.fromisoformat(current["end"]["dateTime"])
+                    - datetime.fromisoformat(current["start"]["dateTime"])
+                ).total_seconds()
+                // 60
+            )
+            new_start = base.replace(hour=new_hour, minute=new_minute, second=0, tzinfo=tz)
+            patch["start"] = {"dateTime": new_start.isoformat(), "timeZone": str(tz)}
+            patch["end"] = {
+                "dateTime": (new_start + timedelta(minutes=delta)).isoformat(),
+                "timeZone": str(tz),
+            }
+
+        if not patch:
+            return "Nothing to update: no fields were supplied"
+
+        updated = (
+            service.events()
+            .patch(
+                calendarId="primary",
+                eventId=event_id,
+                body=patch,
+                sendUpdates="all" if "attendees" in patch else "none",
+            )
+            .execute()
+        )
+        start = (updated.get("start") or {}).get("dateTime", "")
+        people = [a.get("email", "") for a in updated.get("attendees", [])]
+        extra = f"; invited={people}" if people else ""
+        return f"Updated '{updated.get('summary')}' at {start}; id={updated.get('id')}{extra}"
+    except Exception as e:
+        return f"Failed to update event: {type(e).__name__}: {e}"
+
+
 def make_calendar_tools(token: str, tz: ZoneInfo) -> list:
     """Bind a token and a zone to the tools. The token never becomes a parameter."""
 
@@ -212,4 +335,57 @@ def make_calendar_tools(token: str, tz: ZoneInfo) -> list:
             tz,
         )
 
-    return [add_calendar_event]
+    @tool("list_calendar_events")
+    def list_calendar_events(days: int = 7, max_results: int = 10) -> str:
+        """List upcoming events from the primary calendar.
+        Args:
+            days: How many days ahead to look (default 7).
+            max_results: Maximum events to return (default 10).
+        """
+        return _list_events(get_calendar_service(token), days, max_results)
+
+    @tool("delete_calendar_event")
+    def delete_calendar_event(event_id: str) -> str:
+        """Delete one event. Get the id from list_calendar_events first; never guess an id.
+        Args:
+            event_id: The id returned by list_calendar_events.
+        """
+        return _delete_event(get_calendar_service(token), event_id)
+
+    @tool("update_calendar_event")
+    def update_calendar_event(
+        event_id: str,
+        add_attendees: str = "",
+        title: str = "",
+        date: str = "",
+        hour: int = -1,
+        minute: int = -1,
+        duration_minutes: int = -1,
+        description: str = "",
+    ) -> str:
+        """Change an existing event without touching fields you leave alone.
+        Get the id from list_calendar_events first.
+        Args:
+            event_id: The id returned by list_calendar_events.
+            add_attendees: Emails to ADD, comma-separated. Existing guests are kept.
+            title: New title. Empty keeps the current one.
+            date: New date YYYY-MM-DD. Empty keeps the current one.
+            hour: New start hour, 24h. -1 keeps the current one.
+            minute: New start minute. -1 keeps the current one.
+            duration_minutes: New length. -1 keeps the current one.
+            description: New description. Empty keeps the current one.
+        """
+        return _update_event(
+            get_calendar_service(token),
+            event_id,
+            add_attendees,
+            title,
+            date,
+            hour,
+            minute,
+            duration_minutes,
+            description,
+            tz,
+        )
+
+    return [add_calendar_event, list_calendar_events, update_calendar_event, delete_calendar_event]

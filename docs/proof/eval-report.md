@@ -1,0 +1,31 @@
+# Eval report
+
+Contract layer: **10/10 passed**
+
+Contract cases feed model-shaped arguments straight into the tool with a fake
+Google service. They prove the tool handles messy input; they say nothing
+about the model.
+
+| Case | Result | Notes |
+|---|---|---|
+| simple-lunch | PASS | Created 'Lunch with Priya'; 2026-11-20T13:00:00+08:00 → 2026 |
+| every-2-weeks-until | PASS | Created 'Meeting'; 2026-11-24T10:00:00+08:00 → 2026-11-24T10 |
+| daily-with-minute | PASS | Created 'Standup'; 2026-11-20T09:15:00+08:00 → 2026-11-20T09 |
+| duplicate-emails | PASS | Created 'Sync'; 2026-11-20T15:00:00+08:00 → 2026-11-20T15:30 |
+| meet-link | PASS | Created 'Call with Bob'; 2026-11-20T16:00:00+08:00 → 2026-11 |
+| weekly-byday-8 | PASS | Created 'Retro'; 2026-11-23T17:00:00+08:00 → 2026-11-23T17:3 |
+| messy-date | PASS | Created 'Meeting'; 2026-11-20T13:00:00+08:00 → 2026-11-20T13 |
+| string-bool | PASS | Created 'Meeting'; 2026-11-20T09:00:00+08:00 → 2026-11-20T09 |
+| no-title | PASS | Created 'Meeting'; 2026-11-20T09:00:00+08:00 → 2026-11-20T09 |
+| count-beats-until | PASS | Created 'Meeting'; 2026-11-20T09:00:00+08:00 → 2026-11-20T09 |
+
+## Live layer — `nvidia/nemotron-3.5-super-vl:free`
+
+**4/4 passed**
+
+| Prompt | Result | Detail |
+|---|---|---|
+| book lunch with priya tomorrow at 1pm for 45 minutes | PASS | ok |
+| standup every monday at 9:15 for 15 min | PASS | ok |
+| sync with a@x.com tomorrow at 3 | PASS | ok |
+| meeting in the 32nd of May at 10 | PASS | did not book |

@@ -1,0 +1,6 @@
+{"ts": "2026-11-19T08:10:46.578948+00:00", "session": "0ac45fe5", "node": "run", "kind": "mcp_session", "transport": "mcp:stdio", "server": "pitu-calendar"}
+{"ts": "2026-11-19T08:10:46.606604+00:00", "session": "0ac45fe5", "node": "run", "kind": "request", "tz": "Asia/Singapore", "model": "nvidia/nemotron-3.5-super-vl:free"}
+{"ts": "2026-11-19T08:10:47.693946+00:00", "session": "0ac45fe5", "node": "model", "kind": "tool_call", "model": "nvidia/nemotron-3.5-super-vl:free", "tool": "list_calendar_events", "args": {"days": 7, "max_results": 10}}
+{"ts": "2026-11-19T08:10:48.096574+00:00", "session": "0ac45fe5", "node": "tools", "kind": "message", "model": "nvidia/nemotron-3.5-super-vl:free", "preview": [{"type": "text", "text": "2026-11-20T09:00:00+08:00 | Standup | id=av8auvghrnt8q62il3gg9fsci0", "id": "lc_fdcb8c1e-2e08-4f92-b77d-8a0591de66e4"}]}
+{"ts": "2026-11-19T08:10:49.784979+00:00", "session": "0ac45fe5", "node": "model", "kind": "message", "model": "nvidia/nemotron-3.5-super-vl:free", "preview": "You have one event on your calendar this week:\n\n- **Standup** \u2014 Friday, November 20, 2026 at 9:00 AM (+08)"}
+{"ts": "2026-11-19T08:10:49.785654+00:00", "session": "0ac45fe5", "node": "run", "kind": "reply", "outcome": "You have one event o"}

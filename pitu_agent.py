@@ -1,4 +1,4 @@
-import json
+import asyncio
 import os
 import sys
 import uuid
@@ -12,17 +12,40 @@ load_dotenv()
 
 from langchain.agents import create_agent  # noqa: E402
 from langchain.agents.middleware import ToolCallLimitMiddleware  # noqa: E402
+from langchain_mcp_adapters.client import MultiServerMCPClient  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
 
 from prompt import SYSTEM_PROMPT  # noqa: E402
-from tools import DEFAULT_TZ, make_calendar_tools, require_token  # noqa: E402
+from tools import DEFAULT_TZ, require_token  # noqa: E402
 from trace import trace  # noqa: E402
 
 
-def build_model() -> ChatOpenAI:
+def mcp_client(token: str, tz: str, session: str = "cli") -> MultiServerMCPClient:
+    """One client per session: the token travels in the child's env, never in a message."""
+    return MultiServerMCPClient(
+        {
+            "pitu-calendar": {
+                "command": sys.executable,
+                "args": ["mcp_server.py"],
+                "transport": "stdio",
+                "env": {
+                    "GOOGLE_TOKEN": token,
+                    "CALENDAR_TZ": tz,
+                    "PITU_SESSION": session,  # lets child-side retrieval trace to the same file
+                },
+            }
+        }
+    )
+
+
+def load_tools(client: MultiServerMCPClient) -> list:
+    """Kept for tests and sync callers; the CLI uses a held session instead."""
+    return asyncio.run(client.get_tools())
+
+def build_model(slug: str | None = None) -> ChatOpenAI:
     """The only place a chat model is constructed. P2-P5 call this."""
     key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    model = (os.environ.get("MODEL") or "").strip()
+    model = (slug or os.environ.get("MODEL") or "").strip()
     # OpenAI SDKs silently fall back to OPENAI_API_KEY when this is empty, which
     # produces a 401 that looks like a bad key. Fail here with a clear message.
     if not key:
@@ -60,7 +83,12 @@ def build_agent(tools: list):
                 tool_name="add_calendar_event",
                 run_limit=1,  # one create attempt per user request (I4)
                 exit_behavior="end",
-            )
+            ),
+            ToolCallLimitMiddleware(
+                tool_name="delete_calendar_event",
+                run_limit=1,  # one deletion per request; several need a second request
+                exit_behavior="end",
+            ),
         ],
     )
 
@@ -87,16 +115,45 @@ def _log_update(chunk: dict[str, Any], session: str, model: str) -> None:
                 trace(session, node, kind="message", model=model, preview=preview)
 
 
-def run(prompt: str, agent=None, session: str | None = None, tz: str = DEFAULT_TZ) -> str:
+async def run(
+    prompt: str,
+    agent=None,
+    session: str | None = None,
+    tz: str = DEFAULT_TZ,
+    token: str | None = None,
+) -> str:
+    """Async: MCP tools are async-only, so the whole agent path is too.
+
+    token: a per-request access token (Phase 4). Falls back to GOOGLE_TOKEN for the CLI.
+    """
     session = session or uuid.uuid4().hex[:8]
-    agent = agent or build_agent(make_calendar_tools(require_token(), ZoneInfo(tz)))
+    # the date must be injected here, not only in main(): the server path skipped it
+    prompt = (
+        f"Today is {datetime.now(ZoneInfo(tz)).strftime('%Y-%m-%d %H:%M:%S %Z')}.\n"
+        f"Request: {prompt}"
+    )
+    if agent is not None:
+        return await _stream(agent, prompt, session, tz)
+
+    client = mcp_client(token or require_token(), tz, session)
+    async with client.session("pitu-calendar") as _session:
+        from langchain_mcp_adapters.tools import load_mcp_tools
+
+        tools = await load_mcp_tools(_session)
+        trace(session, "run", kind="mcp_session", transport="mcp:stdio", server="pitu-calendar")
+        return await _stream(build_agent(tools), prompt, session, tz)
+
+
+async def _stream(agent, prompt: str, session: str, tz: str) -> str:
     trace(session, "run", kind="request", tz=tz, model=os.environ.get("MODEL"))
     print(f"Thinking... (session {session})", flush=True)
+    # each tool call costs ~3 graph steps; 8 was enough for one call, not two.
+    limit = int(os.environ.get("RECURSION_LIMIT", "25"))
     last: dict[str, Any] | None = None
-    for mode, chunk in agent.stream(
+    async for mode, chunk in agent.astream(
         {"messages": [{"role": "user", "content": prompt}]},
         stream_mode=["updates", "values"],
-        config={"recursion_limit": 8},
+        config={"recursion_limit": limit},
     ):
         if mode == "updates" and isinstance(chunk, dict):
             _log_update(chunk, session, os.environ.get("MODEL", ""))
@@ -120,9 +177,9 @@ def main() -> None:
         request = input("Request: ").strip()
     if not request:
         sys.exit(1)
-    dated = f"Today is {datetime.now(ZoneInfo(tz)).strftime('%Y-%m-%d %H:%M:%S %Z')}.\nRequest: {request}"
+    dated = request  # run() injects the date for both CLI and server
     try:
-        print(run(dated, tz=tz))
+        print(asyncio.run(run(dated, tz=tz)))
     except Exception as e:
         print(f"Error: {type(e).__name__}: {e}")
 

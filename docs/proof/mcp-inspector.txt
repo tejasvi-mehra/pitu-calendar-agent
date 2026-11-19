@@ -1,0 +1,14 @@
+MCP server: pitu-calendar  (transport: stdio)
+
+- add_calendar_event
+    params: title, date, hour, minute, duration_minutes, location, description, freq, interval, count, until_date, by_day, attendees, create_meet
+    desc:   Create a Google Calendar event with optional recurrence, invites, and Meet link.
+    token in schema: False
+- list_calendar_events
+    params: days, max_results
+    desc:   List upcoming events from the primary calendar.
+    token in schema: False
+- search_notes
+    params: question
+    desc:   Search meeting notes for facts, decisions and follow-ups.
+    token in schema: False

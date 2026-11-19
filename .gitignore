@@ -20,3 +20,7 @@ webapp/dist/
 
 # os
 .DS_Store
+
+# vite client env
+webapp/.env
+webapp/.env.local
