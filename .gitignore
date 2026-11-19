@@ -1,0 +1,22 @@
+# secrets
+.env
+credentials.json
+token.json
+.claudeignore
+
+# runtime output
+traces/
+
+# python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+venv/
+
+# frontend
+node_modules/
+webapp/dist/
+
+# os
+.DS_Store
