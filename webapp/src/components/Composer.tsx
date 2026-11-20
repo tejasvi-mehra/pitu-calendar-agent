@@ -13,6 +13,7 @@ export function Composer({
   onTzChange,
   tzEditing,
   onTzEdit,
+  onTzClose,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -25,6 +26,7 @@ export function Composer({
   onTzChange: (tz: string) => void;
   tzEditing: boolean;
   onTzEdit: () => void;
+  onTzClose: () => void;
 }) {
   return (
     <section className={busy ? "composer is-busy" : "composer"}>
@@ -74,7 +76,7 @@ export function Composer({
             value={tz}
             onChange={(e) => onTzChange(e.target.value)}
             autoFocus
-            onBlur={onTzEdit}
+            onBlur={onTzClose}
           >
             {zones().map((z) => (
               <option key={z.id} value={z.id}>

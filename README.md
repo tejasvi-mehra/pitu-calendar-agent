@@ -82,7 +82,7 @@ mcp dev mcp_server.py     # inspect the server alone
 ## Tests and evals
 
 ```
-76 passed in 1.32s                      # pytest, no network, no API key
+89 passed in 1.22s                      # pytest, no network, no API key
 9 passed                                # vitest, webapp/src/lib
 contract: 10/10 passed                  # evals/run_evals.py
 live: 4/4 passed                        # evals/run_evals.py --live

@@ -101,3 +101,22 @@ def test_no_token_in_any_schema(monkeypatch):
     for t in tools.values():
         s = t.args_schema.model_json_schema()
         assert "token" not in str(s).lower()
+
+
+def test_list_events_uses_the_requested_zone(monkeypatch):
+    """A London user must get a London window, not the server's default zone."""
+    captured = {}
+
+    class Events:
+        def list(self, **kw):
+            captured.update(kw)
+            return Req({"items": []})
+
+    class Svc:
+        def events(self):
+            return Events()
+
+    monkeypatch.setattr("tools.get_calendar_service", lambda *a, **k: Svc())
+    tools = {t.name: t for t in make_calendar_tools("fake", ZoneInfo("Europe/London"))}
+    tools["list_calendar_events"].invoke({"days": 7})
+    assert captured["timeMin"].endswith("+00:00") or "Z" in captured["timeMin"]

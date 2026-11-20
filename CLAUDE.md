@@ -97,7 +97,7 @@ Required environment:
 Checks, in the order to run them:
 
 ```bash
-.venv/bin/python -m pytest -q          # 86 tests, no network, no key
+.venv/bin/python -m pytest -q          # 89 tests, no network, no key
 npm --prefix webapp test               # 9 tests
 .venv/bin/python -m ruff check .       # clean
 .venv/bin/python evals/run_evals.py    # contract: 10/10

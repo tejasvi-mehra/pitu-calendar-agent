@@ -18,3 +18,14 @@ about the model.
 | string-bool | PASS | Created 'Meeting'; 2026-11-20T09:00:00+08:00 → 2026-11-20T09 |
 | no-title | PASS | Created 'Meeting'; 2026-11-20T09:00:00+08:00 → 2026-11-20T09 |
 | count-beats-until | PASS | Created 'Meeting'; 2026-11-20T09:00:00+08:00 → 2026-11-20T09 |
+
+## Live layer — `nvidia/nemotron-3.5-super-vl:free`
+
+**4/4 passed**
+
+| Prompt | Result | Detail |
+|---|---|---|
+| book lunch with priya tomorrow at 1pm for 45 minutes | PASS | ok |
+| standup every monday at 9:15 for 15 min | PASS | ok |
+| sync with a@x.com tomorrow at 3 | PASS | ok |
+| meeting in the 32nd of May at 10 | PASS | did not book |

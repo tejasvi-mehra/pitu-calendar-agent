@@ -210,6 +210,8 @@ export default function App() {
       setTurns((prev) => [...prev, replyTurn].slice(-MAX_TURNS));
       if (speakNext) {
         speak(reply, voice || undefined);
+        // point the Stop control at this turn; the array may have been trimmed
+        setSpeakingIndex(Math.min(turns.length + 1, MAX_TURNS - 1));
         setSpeakNext(false);
       }
     } catch {
@@ -263,6 +265,7 @@ export default function App() {
             tz={tz}
             tzEditing={tzEditing}
             onTzEdit={() => setTzEditing((v) => !v)}
+            onTzClose={() => setTzEditing(false)}
             onTzChange={(z) => {
               setOverride(z);
               setTzEditing(false);

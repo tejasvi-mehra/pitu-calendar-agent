@@ -158,10 +158,13 @@ def _create_event(
         return f"Failed to create event: {type(e).__name__}: {e}"
 
 
-def _list_events(service: Any, days: int = 7, max_results: int = 10) -> str:
-    """Upcoming events in the next N days. Never raises."""
+def _list_events(
+    service: Any, days: int = 7, max_results: int = 10, tz: ZoneInfo = None
+) -> str:
+    """Upcoming events in the next N days, in the caller's zone. Never raises."""
+    tz = tz or ZoneInfo(DEFAULT_TZ)
     try:
-        now = datetime.now(tz=ZoneInfo(DEFAULT_TZ)).replace(microsecond=0)
+        now = datetime.now(tz=tz).replace(microsecond=0)
         end = now + timedelta(days=int(days))
         resp = (
             service.events()
@@ -342,7 +345,7 @@ def make_calendar_tools(token: str, tz: ZoneInfo) -> list:
             days: How many days ahead to look (default 7).
             max_results: Maximum events to return (default 10).
         """
-        return _list_events(get_calendar_service(token), days, max_results)
+        return _list_events(get_calendar_service(token), days, max_results, tz)
 
     @tool("delete_calendar_event")
     def delete_calendar_event(event_id: str) -> str:
