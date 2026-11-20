@@ -8,7 +8,6 @@ Needs a *Desktop* OAuth client JSON outside the repo, at GOOGLE_CREDENTIALS_PATH
 """
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path

@@ -175,6 +175,8 @@ export default function App() {
     setText("");
     const at = Date.now();
     const userTurn: Turn = { role: "user", text: request, at };
+    // prior turns give "yes" and "that meeting" something to refer to
+    const history = turns.map((t) => ({ role: t.role, content: t.text }));
     setTurns((prev) => [...prev.slice(-(MAX_TURNS - 1)), userTurn]);
     try {
       const r = await fetch("/chat", {
@@ -184,7 +186,7 @@ export default function App() {
           Authorization: `Bearer ${t}`,
           "X-Timezone": tz,
         },
-        body: JSON.stringify({ text: request }),
+        body: JSON.stringify({ text: request, history }),
       });
       const data = await r.json().catch(() => ({}));
       if (r.status === 401) {

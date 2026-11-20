@@ -1,10 +1,7 @@
 import json
-import os
-import re
 
-import pytest
 
-from trace import SECRET, redact, trace
+from trace import redact, trace
 
 
 def test_redact_token_shapes():

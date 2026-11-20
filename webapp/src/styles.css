@@ -16,6 +16,11 @@
   --radius: 14px;
   --radius-pill: 999px;
 
+  /* chat metrics, tuned in the layout lab */
+  --avatar: 21px;
+  --label-gap: 6px;
+  --bubble-pad: 10px;
+
   --space-1: 8px;
   --space-2: 12px;
   --space-3: 16px;
@@ -102,8 +107,10 @@ button {
 
 .app {
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 100dvh;
+  /* minmax(0,…) lets the middle row shrink, which is what makes .history scroll
+     internally instead of pushing the composer down */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100dvh;
   max-width: 760px;
   margin: 0 auto;
 }
@@ -229,7 +236,7 @@ button {
 
 .popover-field {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
 }
 
@@ -361,23 +368,26 @@ button {
 .history {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-1);          /* 8px: spacing lives here only; .turn adds none */
   padding: var(--space-3);
   overflow-y: auto;
+  min-height: 0;                /* required for a grid child to scroll */
+  scroll-padding-bottom: var(--space-3);
+  overscroll-behavior: contain;
 }
 
 .turn {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: var(--space-2);
+  grid-template-columns: var(--avatar) minmax(0, 1fr);
+  gap: var(--space-1);
   align-items: start;
 }
 
 .turn-avatar {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--avatar);
+  height: var(--avatar);
   border-radius: 50%;
   overflow: hidden;
   background: var(--paper-2);
@@ -386,13 +396,13 @@ button {
 
 .turn-avatar img {
   display: block;
-  width: 20px;
+  width: 65%;
   height: auto;
 }
 
 .turn-body {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--label-gap);
   min-width: 0;
 }
 
@@ -411,7 +421,7 @@ button {
 }
 
 .bubble {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--bubble-pad);
   border-radius: var(--radius);
   border: 1px solid var(--line);
 }
@@ -437,7 +447,7 @@ button {
 }
 
 .turn + .turn {
-  margin-top: var(--space-4);
+  margin-top: 0;
 }
 
 .read {
@@ -445,7 +455,8 @@ button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: 44px;
+  min-height: 32px;
+  margin-top: 2px;
   padding: 0;
   color: var(--ink-soft);
   font-size: 13px;

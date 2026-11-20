@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import pytest
 
 import pitu_agent
 import server

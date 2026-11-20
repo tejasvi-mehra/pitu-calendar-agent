@@ -30,21 +30,43 @@ export function History({
   const ref = useRef<HTMLDivElement>(null);
   const [locked, setLocked] = useState(false);
   const lastCount = useRef(0);
+  const stick = useRef(true); // follow new messages unless the user scrolled up
 
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    function onScroll() {
+      const e = ref.current;
+      if (!e) return;
+      const near = e.scrollHeight - e.scrollTop - e.clientHeight < 64;
+      stick.current = near;
+      setLocked(!near);
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // scroll after layout so the measured height includes the new turn and its bubble
   useEffect(() => {
     if (turns.length === lastCount.current) return;
     lastCount.current = turns.length;
     const el = ref.current;
-    if (el && !locked) el.scrollTop = el.scrollHeight;
-  }, [turns.length, locked]);
+    if (!el || !stick.current) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [turns.length]);
 
-  function onScroll() {
+  const jump = () => {
     const el = ref.current;
     if (!el) return;
-    setLocked(el.scrollHeight - el.scrollTop - el.clientHeight > 64);
-  }
+    stick.current = true;
+    setLocked(false);
+    el.scrollTop = el.scrollHeight;
+  };
 
-  if (turns.length === 0) {    return (
+  if (turns.length === 0) {
+    return (
       <section className="history">
         <div className="empty">
           <p className="empty-title">{copy.emptyTitle}</p>
@@ -57,7 +79,7 @@ export function History({
   const lastAssistant = [...turns].reverse().find((t) => t.role === "assistant");
 
   return (
-    <section className="history" ref={ref} onScroll={onScroll}>
+    <section className="history" ref={ref}>
       {turns.map((turn, i) => (
         <article className={turn.role === "user" ? "turn turn-user" : "turn turn-assistant"} key={turn.at}>
           <span className="turn-avatar" aria-hidden="true">
@@ -78,7 +100,8 @@ export function History({
                 className="read"
                 onClick={() => (speakingIndex === i ? onStop() : onSpeak(i))}
                 aria-label={speakingIndex === i ? copy.stopReading : copy.readAloud}
-              >                <SpeakGlyph playing={speakingIndex === i} />
+              >
+                <SpeakGlyph playing={speakingIndex === i} />
                 {speakingIndex === i ? copy.stopReading : copy.readAloud}
               </button>
             )}
@@ -86,15 +109,7 @@ export function History({
         </article>
       ))}
       {locked && (
-        <button
-          className="jump"
-          aria-label="Jump to newest"
-          onClick={() => {
-            const el = ref.current;
-            if (el) el.scrollTop = el.scrollHeight;
-            setLocked(false);
-          }}
-        >
+        <button className="jump" aria-label="Jump to newest" onClick={jump}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12 5v14M5 12l7 7 7-7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>

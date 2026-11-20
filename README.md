@@ -95,20 +95,65 @@ cents. Both write `evals/report.md`.
 Proof artifacts are in `docs/proof/`: `mcp-inspector.txt`, `rag-answer.md`,
 `eval-report.md`, `before-after.md`, `trace-sample.jsonl`.
 
-## Limitations
+## Known gaps in this repository
 
-- Access tokens expire in about an hour. The client caches the token in
-  `sessionStorage` for that hour; after it lapses a Google popup reappears.
-- The OAuth app runs in **Testing** mode: 100 user cap and an "unverified app" warning
-  on the consent screen.
-- Conversation text goes to a third-party model provider. `MODEL` is swappable.
-- The `notes/` corpus is synthetic and shared across users.
-- One laptop, one process, in-memory sessions. A restart logs everyone out.
-- `sessionStorage` is readable by injected script. Bounded by the one-hour expiry and
-  the server re-verifying every token, but it is the reason this is not a public
-  deployment.
-- Deleting is capped at one event per request by the tool-call middleware, but there is
-  no confirmation dialog; the model is instructed to delete only what the user named.
+Not limitations of the design — work an operator should do before public use.
+
+- **The server has never been load-tested.** One process, in-memory rate-limit state and
+  in-memory sessions. A restart drops every session and resets rate limits.
+- **`/chat` has no timeout.** A slow model holds the request open; a reverse proxy
+  timeout is the only bound today.
+- **No CSRF token.** The API is bearer-only and never sets a cookie, so classic CSRF
+  does not apply, but do not add cookie auth without adding CSRF protection.
+- **`sessionStorage` holds the access token.** Readable by injected script. See
+  Security below.
+- **The `notes/` corpus ships with the repo** and is shared by every user.
+- **No CI.** Tests and lints run locally only.
+- **Delete has no server-side confirmation.** The prompt requires the model to confirm
+  first, and the middleware caps deletion at one call per request, but nothing on the
+  server enforces it. A two-step `/confirm` endpoint is the fix.
+
+## Security notes
+
+| Item | Current state | Operator should |
+|---|---|---|
+| Token at rest | `sessionStorage`, 1-hour expiry enforced client-side | Add a CSP so injected script cannot read it; see below |
+| Allowlist | Empty `ALLOWED_EMAILS` rejects everyone (fail closed) | Set it explicitly |
+| Rate limit | Per-account, in-memory, 10/min default | Put a real limiter at the proxy for multi-instance |
+| Token verification | `tokeninfo` on every request, audience checked | Nothing; keep it |
+| Logging | `Authorization` redacted before any write | Audit `traces/` retention |
+| Third-party scripts | Google Identity Services only | Keep it that way; see `test_invariants.py` |
+
+A Content-Security-Policy that allows only what the app needs:
+
+```python
+@app.middleware("http")
+async def csp(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://accounts.google.com; "
+        "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; "
+        "frame-src https://accounts.google.com; "
+        "img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+```
+
+## Production checklist
+
+| Area | Todo |
+|---|---|
+| Google | Publish the OAuth app (remove Testing mode); restrict the Web client to your domain |
+| Hosting | HTTPS only, so `sessionStorage` sits behind a secure origin |
+| Process | More than one worker needs shared rate-limit state (Redis) and sticky sessions |
+| Models | Pin a paid slug; free-tier limits are 50 requests/day |
+| Observability | Ship `traces/` somewhere durable with a retention rule |
+| Data | Decide how long transcripts are kept; they carry meeting titles and names |
+| CI | `pytest`, `npm test`, `ruff`, `npm run build` on every push |
+| Abuse | A global per-IP limit in front of the per-account one |
 
 ## Licence
 

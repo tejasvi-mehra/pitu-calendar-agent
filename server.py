@@ -5,7 +5,6 @@ Google's tokeninfo endpoint, and is handed to a per-session MCP subprocess. It i
 never logged, never traced, and never sent to the model provider (I1, I2, I8).
 """
 
-import asyncio
 import os
 import uuid
 from collections import defaultdict, deque
@@ -15,7 +14,7 @@ from typing import Annotated
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -26,12 +25,33 @@ from trace import trace  # noqa: E402
 
 app = FastAPI(title="Pitu - Calendar Agent")
 
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """A CSP so injected script cannot read the token out of sessionStorage (see README)."""
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://accounts.google.com; "
+        "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; "
+        "frame-src https://accounts.google.com; "
+        "img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "base-uri 'none'; form-action 'none'; object-src 'none'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
 TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
 _rl: dict[str, deque] = defaultdict(deque)
 
 
 class ChatRequest(BaseModel):
     text: str
+    # prior turns so "yes" or "delete that one" has something to refer to.
+    # Bounded server-side; never persisted.
+    history: list[dict] = []
 
 
 class TokenInfo(BaseModel):
@@ -56,10 +76,19 @@ def _check_rate(sub: str) -> None:
     q.append(now)
 
 
+# unbounded growth: one deque per email seen forever. Trim on each call.
+def _prune_rate_state() -> None:
+    if len(_rl) <= 10_000:
+        return
+    for key in [k for k, v in _rl.items() if not v]:
+        _rl.pop(key, None)
+
+
 async def verify(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
     """Header present -> tokeninfo -> aud -> allowlist -> rate limit. Fail closed."""
+    _prune_rate_state()
     if not authorization or not authorization.startswith("Bearer "):
         trace("auth", "verify", kind="auth_reject", reason="missing_header")
         raise HTTPException(401, "Sign in with Google again")
@@ -68,9 +97,9 @@ async def verify(
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(TOKENINFO, params={"access_token": token})
-    except httpx.HTTPError:
+    except httpx.HTTPError as e:
         trace("auth", "verify", kind="auth_reject", reason="tokeninfo_unreachable")
-        raise HTTPException(401, "Sign in with Google again")
+        raise HTTPException(401, "Sign in with Google again") from e
     if r.status_code != 200:
         trace("auth", "verify", kind="auth_reject", reason="tokeninfo_rejected")
         raise HTTPException(401, "Sign in with Google again")
@@ -80,7 +109,11 @@ async def verify(
         trace("auth", "verify", kind="auth_reject", reason="wrong_audience")
         raise HTTPException(401, "That token is not for this app")
     allowed = _allowed()
-    if allowed and info.email.lower() not in allowed:
+    # fail closed: an empty allowlist must lock everyone out, not let everyone in
+    if not allowed:
+        trace("auth", "verify", kind="auth_reject", reason="allowlist_unset")
+        raise HTTPException(403, "This service has no allowlist configured")
+    if info.email.lower() not in allowed:
         trace("auth", "verify", kind="auth_reject", reason="not_allowlisted")
         raise HTTPException(403, "You are not permitted to use this service")
     # a token granted before the calendar scope existed would 403 deep inside Google;
@@ -151,6 +184,22 @@ def health():
     return {"ok": True}
 
 
+MAX_HISTORY = 20  # turns kept for context; roughly 10 exchanges
+
+
+def _clean_history(history: list[dict]) -> list[tuple[str, str]]:
+    """Only role/content survive; anything else a client sends is dropped."""
+    out: list[tuple[str, str]] = []
+    for m in history[-MAX_HISTORY:]:
+        if not isinstance(m, dict):
+            continue
+        role, content = m.get("role"), m.get("content")
+        if role not in {"user", "assistant"} or not isinstance(content, str):
+            continue
+        out.append((role, content[:4000]))
+    return out
+
+
 @app.post("/chat")
 async def chat(
     body: ChatRequest,
@@ -159,13 +208,17 @@ async def chat(
 ):
     tz = resolve_tz(x_timezone)
     session = uuid.uuid4().hex[:8]
-    trace(session, "chat", kind="request", tz=tz, email=who["email"], text=body.text[:200])
+    history = _clean_history(body.history)
+    trace(session, "chat", kind="request", tz=tz, email=who["email"],
+          text=body.text[:200], history_turns=len(history))
     try:
-        reply = await pitu_agent.run(body.text, session=session, tz=tz, token=who["token"])
+        reply = await pitu_agent.run(
+            body.text, session=session, tz=tz, token=who["token"], history=history
+        )
     except Exception as e:
         # generic to the caller; detail stays in the trace
         trace(session, "chat", kind="error", error=f"{type(e).__name__}")
-        raise HTTPException(502, "The agent could not complete that request")
+        raise HTTPException(502, "The agent could not complete that request") from e
     return {"session": session, "tz": tz, "reply": reply}
 
 

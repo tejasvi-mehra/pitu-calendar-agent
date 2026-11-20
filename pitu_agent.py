@@ -121,10 +121,13 @@ async def run(
     session: str | None = None,
     tz: str = DEFAULT_TZ,
     token: str | None = None,
+    history: list[tuple[str, str]] | None = None,
 ) -> str:
     """Async: MCP tools are async-only, so the whole agent path is too.
 
-    token: a per-request access token (Phase 4). Falls back to GOOGLE_TOKEN for the CLI.
+    token: a per-request access token. Falls back to GOOGLE_TOKEN for the CLI.
+    history: prior (role, content) turns. Without it the model cannot resolve
+             "yes" or "that meeting", which breaks any confirm-then-act flow.
     """
     session = session or uuid.uuid4().hex[:8]
     # the date must be injected here, not only in main(): the server path skipped it
@@ -132,8 +135,11 @@ async def run(
         f"Today is {datetime.now(ZoneInfo(tz)).strftime('%Y-%m-%d %H:%M:%S %Z')}.\n"
         f"Request: {prompt}"
     )
+    messages = [{"role": r, "content": c} for r, c in (history or [])]
+    messages.append({"role": "user", "content": prompt})
+
     if agent is not None:
-        return await _stream(agent, prompt, session, tz)
+        return await _stream(agent, messages, session, tz)
 
     client = mcp_client(token or require_token(), tz, session)
     async with client.session("pitu-calendar") as _session:
@@ -141,17 +147,18 @@ async def run(
 
         tools = await load_mcp_tools(_session)
         trace(session, "run", kind="mcp_session", transport="mcp:stdio", server="pitu-calendar")
-        return await _stream(build_agent(tools), prompt, session, tz)
+        return await _stream(build_agent(tools), messages, session, tz)
 
 
-async def _stream(agent, prompt: str, session: str, tz: str) -> str:
-    trace(session, "run", kind="request", tz=tz, model=os.environ.get("MODEL"))
+async def _stream(agent, messages: list[dict], session: str, tz: str) -> str:
+    trace(session, "run", kind="request", tz=tz, model=os.environ.get("MODEL"),
+          turns=len(messages))
     print(f"Thinking... (session {session})", flush=True)
     # each tool call costs ~3 graph steps; 8 was enough for one call, not two.
     limit = int(os.environ.get("RECURSION_LIMIT", "25"))
     last: dict[str, Any] | None = None
     async for mode, chunk in agent.astream(
-        {"messages": [{"role": "user", "content": prompt}]},
+        {"messages": messages},
         stream_mode=["updates", "values"],
         config={"recursion_limit": limit},
     ):
